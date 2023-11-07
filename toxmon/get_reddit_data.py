@@ -9,17 +9,13 @@ from praw.models import Comment, Submission
 
 @dataclass
 class RedditDataRetriever:
-    subreddit_name: str
-    limit: int
     data_dir: str
     reddit: praw.Reddit = field(init=False)
-    subreddit: praw.models.Subreddit = field(init=False)
     threads_dir: str = field(init=False)
     comments_dir: str = field(init=False)
 
     def __post_init__(self):
         self.reddit = praw.Reddit("bot1", config_interpolation="basic")
-        self.subreddit = self.reddit.subreddit(self.subreddit_name)
         self.threads_dir = os.path.join(self.data_dir, "threads")
         self.comments_dir = os.path.join(self.data_dir, "comments")
         os.makedirs(self.threads_dir, exist_ok=True)
@@ -99,21 +95,26 @@ class RedditDataRetriever:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
 
-    def retrieve_top_threads(self) -> None:
-        for submission in self.subreddit.top(time_filter="all", limit=self.limit):
+    def retrieve_top_threads(
+        self, subreddit_name: str, limit: int = 10, log_progress: bool = True
+    ) -> None:
+        subreddit = self.reddit.subreddit(subreddit_name)
+        for i, submission in enumerate(subreddit.top(time_filter="all", limit=limit)):
+            if log_progress:
+                print(f"Processing thread {i + 1} of {limit}...")
             # Serialize and save submission information
             submission_data = self._serialize_submission(submission)
-            submission_filename = f"{self.subreddit.display_name}_{submission.id}.json"
+            submission_filename = f"{subreddit.display_name}_{submission.id}.json"
             self.save_data(submission_data, submission_filename)
 
             # Serialize and save comments
             comments_data = self._extract_comments(submission)
             comments_filename = (
-                f"{self.subreddit.display_name}_{submission.id}_comments.json"
+                f"{subreddit.display_name}_{submission.id}_comments.json"
             )
             self.save_data(comments_data, comments_filename, is_comment=True)
 
 
 if __name__ == "__main__":
-    retriever = RedditDataRetriever("youtubedrama", 1, "../data")
-    retriever.retrieve_top_threads()
+    retriever = RedditDataRetriever("../data")
+    retriever.retrieve_top_threads("youtubedrama", 1)
