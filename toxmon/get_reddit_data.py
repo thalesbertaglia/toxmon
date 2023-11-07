@@ -12,26 +12,18 @@ class RedditDataRetriever:
     subreddit_name: str
     limit: int
     data_dir: str
-    praw_ini_path: str
     reddit: praw.Reddit = field(init=False)
     subreddit: praw.models.Subreddit = field(init=False)
     threads_dir: str = field(init=False)
     comments_dir: str = field(init=False)
 
     def __post_init__(self):
-        self._set_praw_config(self.praw_ini_path)
         self.reddit = praw.Reddit("bot1", config_interpolation="basic")
         self.subreddit = self.reddit.subreddit(self.subreddit_name)
         self.threads_dir = os.path.join(self.data_dir, "threads")
         self.comments_dir = os.path.join(self.data_dir, "comments")
         os.makedirs(self.threads_dir, exist_ok=True)
         os.makedirs(self.comments_dir, exist_ok=True)
-
-    @staticmethod
-    def _set_praw_config(praw_ini_path: str) -> None:
-        """Set the PRAW configuration to use the specified praw.ini directory."""
-        os.environ["praw_site"] = "bot1"  # Set the site name to use
-        os.environ["praw_ini"] = praw_ini_path  # Specify the praw.ini path
 
     @staticmethod
     def _serialize_praw_object(obj: Any) -> Any:
@@ -123,5 +115,5 @@ class RedditDataRetriever:
 
 
 if __name__ == "__main__":
-    retriever = RedditDataRetriever("youtubedrama", 1, "../data", "../praw.ini")
+    retriever = RedditDataRetriever("youtubedrama", 1, "../data")
     retriever.retrieve_top_threads()
