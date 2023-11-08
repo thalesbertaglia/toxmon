@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -52,11 +53,22 @@ class RedditDataRetriever:
         reraise=True,  # Reraise the exception after all retries have failed
         before_sleep=before_sleep_log(logger, logging.INFO),  # Logging before sleep
     )
-    def _get_top_submissions(self, subreddit_name: str, limit: int):
-        """API call to get top submissions wrapped with tenacity for retries."""
-        return list(
-            self.reddit.subreddit(subreddit_name).top(time_filter="all", limit=limit)
-        )
+    def _get_submissions(
+        self,
+        subreddit_name: str,
+        sort: str = "top",
+        time_filter: str = "all",
+        limit: int = 1000,
+    ) -> List[praw.models.Submission]:
+        """
+        API call to get submissions wrapped with tenacity for retries.
+        Allows sorting by 'top', 'hot', 'new', etc. and time filtering for 'top' and 'controversial'.
+        """
+        subreddit = self.reddit.subreddit(subreddit_name)
+        if sort in ["top", "controversial"]:
+            return list(getattr(subreddit, sort)(time_filter=time_filter, limit=limit))
+        else:
+            return list(getattr(subreddit, sort)(limit=limit))
 
     @staticmethod
     def _serialize_praw_object(obj: Any) -> Any:
@@ -132,40 +144,60 @@ class RedditDataRetriever:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
 
-    def _save_checkpoint(self, index: int, subreddit_name: str) -> None:
-        """Saves the last processed index to a file."""
-        checkpoint = {"last_processed_index": index}
-        with open(
-            os.path.join(self.data_dir, f"checkpoint_{subreddit_name}.json"), "w"
-        ) as f:
-            json.dump(checkpoint, f)
+    def _save_checkpoint(
+        self, index: int, subreddit_name: str, sort: str, time_filter: str
+    ) -> None:
+        """Saves the last processed index to a single file with sort type and time filter as keys."""
+        checkpoint_filename = "checkpoint.json"
+        checkpoint_key = f"{subreddit_name}_{sort}_{time_filter}"
 
-    def _load_checkpoint(self, subreddit_name: str) -> int:
-        """Loads the last processed index from a file."""
         try:
-            with open(
-                os.path.join(self.data_dir, f"checkpoint_{subreddit_name}.json"),
-                "r",
-            ) as f:
-                checkpoint = json.load(f)
-                return checkpoint.get("last_processed_index", 0)
+            with open(os.path.join(self.data_dir, checkpoint_filename), "r") as f:
+                checkpoints = json.load(f)
+        except FileNotFoundError:
+            checkpoints = {}
+
+        checkpoints[checkpoint_key] = {"last_processed_index": index}
+
+        with open(os.path.join(self.data_dir, checkpoint_filename), "w") as f:
+            json.dump(checkpoints, f)
+
+    def _load_checkpoint(self, subreddit_name: str, sort: str, time_filter: str) -> int:
+        """Loads the last processed index from a single file using a specific key with time filter."""
+        checkpoint_filename = "checkpoint.json"
+        checkpoint_key = f"{subreddit_name}_{sort}_{time_filter}"
+
+        try:
+            with open(os.path.join(self.data_dir, checkpoint_filename), "r") as f:
+                checkpoints = json.load(f)
+            return checkpoints.get(checkpoint_key, {}).get("last_processed_index", 0)
         except FileNotFoundError:
             return 0  # If the file doesn't exist, start from the beginning
 
-    def retrieve_top_threads(
-        self, subreddit_name: str, limit: int = 10, log_progress: bool = True
+    def retrieve_threads(
+        self,
+        subreddit_name: str,
+        sort: str = "top",
+        time_filter: str = "all",
+        limit: int = "1000",
+        log_progress: bool = True,
     ) -> None:
         """High-level method to retrieve top threads and handle API interaction."""
-        last_processed_index = self._load_checkpoint(subreddit_name)
+        last_processed_index = self._load_checkpoint(subreddit_name, sort, time_filter)
         try:
-            top_submissions = self._get_top_submissions(subreddit_name, limit)
-
+            top_submissions = self._get_submissions(
+                subreddit_name=subreddit_name,
+                limit=limit,
+                sort=sort,
+                time_filter=time_filter,
+            )
+            print(limit, last_processed_index, len(top_submissions))
             for i, submission in enumerate(
                 top_submissions[last_processed_index:], start=last_processed_index
             ):
                 if log_progress:
                     logger.info(
-                        f"Processing thread {i + 1} of {limit} from r/{subreddit_name}..."
+                        f"Processing thread {i + 1} of {limit} from r/{subreddit_name} from {sort} of {time_filter}..."
                     )
 
                 submission_data = self._serialize_submission(submission)
@@ -176,7 +208,7 @@ class RedditDataRetriever:
                 comments_data = self._extract_comments(submission)
                 comments_filename = f"{subreddit_name}_{submission.id}_comments.json"
                 self._save_data(comments_data, comments_filename, is_comment=True)
-                self._save_checkpoint(i, subreddit_name)
+                self._save_checkpoint(i, subreddit_name, sort, time_filter)
                 time.sleep(1)
 
         except Exception as e:
@@ -184,6 +216,22 @@ class RedditDataRetriever:
 
 
 if __name__ == "__main__":
-    subreddit_name, n_threads = sys.argv[1], int(sys.argv[2])
+    parser = argparse.ArgumentParser(description="Reddit Data Retrieval Script")
+    parser.add_argument("subreddit", help="Name of the subreddit")
+    parser.add_argument("n_threads", type=int, help="Number of threads to retrieve")
+    parser.add_argument("sort", help="Sort type (e.g., top, hot, new)")
+    parser.add_argument(
+        "--time_filter",
+        default="all",
+        help="Time filter for sorting, if applicable (day, week, month, year, all)",
+    )
+
+    args = parser.parse_args()
+
     retriever = RedditDataRetriever("../data")
-    retriever.retrieve_top_threads(subreddit_name=subreddit_name, limit=n_threads)
+    retriever.retrieve_threads(
+        subreddit_name=args.subreddit,
+        sort=args.sort,
+        time_filter=args.time_filter,
+        limit=args.n_threads,
+    )
