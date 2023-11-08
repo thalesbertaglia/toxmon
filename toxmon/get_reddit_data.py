@@ -44,11 +44,13 @@ class RedditDataRetriever:
         os.makedirs(self.comments_dir, exist_ok=True)
 
     @retry(
-        stop=stop_after_attempt(10),
+        stop=stop_after_attempt(20),
         wait=wait_exponential(multiplier=1, min=60, max=180),
-        retry=retry_if_exception_type(prawcore.exceptions.ResponseException),
-        reraise=True,
-        before_sleep=before_sleep_log(logger, logging.INFO),
+        retry=retry_if_exception_type(
+            (prawcore.exceptions.TooManyRequests, prawcore.exceptions.RequestException)
+        ),
+        reraise=True,  # Reraise the exception after all retries have failed
+        before_sleep=before_sleep_log(logger, logging.INFO),  # Logging before sleep
     )
     def _get_top_submissions(self, subreddit_name: str, limit: int):
         """API call to get top submissions wrapped with tenacity for retries."""
@@ -130,14 +132,37 @@ class RedditDataRetriever:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
 
+    def _save_checkpoint(self, index: int, subreddit_name: str) -> None:
+        """Saves the last processed index to a file."""
+        checkpoint = {"last_processed_index": index}
+        with open(
+            os.path.join(self.data_dir, f"checkpoint_{subreddit_name}.json"), "w"
+        ) as f:
+            json.dump(checkpoint, f)
+
+    def _load_checkpoint(self, subreddit_name: str) -> int:
+        """Loads the last processed index from a file."""
+        try:
+            with open(
+                os.path.join(self.data_dir, f"checkpoint_{subreddit_name}.json"),
+                "r",
+            ) as f:
+                checkpoint = json.load(f)
+                return checkpoint.get("last_processed_index", 0)
+        except FileNotFoundError:
+            return 0  # If the file doesn't exist, start from the beginning
+
     def retrieve_top_threads(
         self, subreddit_name: str, limit: int = 10, log_progress: bool = True
     ) -> None:
         """High-level method to retrieve top threads and handle API interaction."""
+        last_processed_index = self._load_checkpoint(subreddit_name)
         try:
             top_submissions = self._get_top_submissions(subreddit_name, limit)
 
-            for i, submission in enumerate(top_submissions):
+            for i, submission in enumerate(
+                top_submissions[last_processed_index:], start=last_processed_index
+            ):
                 if log_progress:
                     logger.info(
                         f"Processing thread {i + 1} of {limit} from r/{subreddit_name}..."
@@ -151,6 +176,8 @@ class RedditDataRetriever:
                 comments_data = self._extract_comments(submission)
                 comments_filename = f"{subreddit_name}_{submission.id}_comments.json"
                 self._save_data(comments_data, comments_filename, is_comment=True)
+                self._save_checkpoint(i, subreddit_name)
+                time.sleep(1)
 
         except Exception as e:
             logger.error(f"An error occurred while retrieving top threads: {e}")
