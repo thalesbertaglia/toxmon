@@ -1,10 +1,24 @@
 import json
+import logging
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Union
 
 import praw
 from praw.models import Comment, Submission
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("log.log", mode="a"),
+        logging.StreamHandler(),
+    ],
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,6 +34,17 @@ class RedditDataRetriever:
         self.comments_dir = os.path.join(self.data_dir, "comments")
         os.makedirs(self.threads_dir, exist_ok=True)
         os.makedirs(self.comments_dir, exist_ok=True)
+
+    @retry(
+        stop=stop_after_attempt(10),
+        wait=wait_exponential(multiplier=1, max=180),
+        before_sleep=before_sleep_log(logger, logging.INFO),
+    )
+    def _get_top_submissions(self, subreddit_name: str, limit: int):
+        """API call to get top submissions wrapped with tenacity for retries."""
+        return list(
+            self.reddit.subreddit(subreddit_name).top(time_filter="all", limit=limit)
+        )
 
     @staticmethod
     def _serialize_praw_object(obj: Any) -> Any:
@@ -86,7 +111,7 @@ class RedditDataRetriever:
         }
         return serialized_data
 
-    def save_data(
+    def _save_data(
         self, data: Dict[str, Any], filename: str, is_comment: bool = False
     ) -> None:
         """Save data to a JSON file in the specified directory."""
@@ -98,23 +123,29 @@ class RedditDataRetriever:
     def retrieve_top_threads(
         self, subreddit_name: str, limit: int = 10, log_progress: bool = True
     ) -> None:
-        subreddit = self.reddit.subreddit(subreddit_name)
-        for i, submission in enumerate(subreddit.top(time_filter="all", limit=limit)):
-            if log_progress:
-                print(f"Processing thread {i + 1} of {limit}...")
-            # Serialize and save submission information
-            submission_data = self._serialize_submission(submission)
-            submission_filename = f"{subreddit.display_name}_{submission.id}.json"
-            self.save_data(submission_data, submission_filename)
+        """High-level method to retrieve top threads and handle API interaction."""
+        try:
+            top_submissions = self._get_top_submissions(subreddit_name, limit)
 
-            # Serialize and save comments
-            comments_data = self._extract_comments(submission)
-            comments_filename = (
-                f"{subreddit.display_name}_{submission.id}_comments.json"
-            )
-            self.save_data(comments_data, comments_filename, is_comment=True)
+            for i, submission in enumerate(top_submissions):
+                if log_progress:
+                    logger.info(
+                        f"Processing thread {i + 1} of {limit} from r/{subreddit_name}..."
+                    )
+
+                submission_data = self._serialize_submission(submission)
+                submission_filename = f"{subreddit_name}_{submission.id}.json"
+                self._save_data(submission_data, submission_filename)
+
+                comments_data = self._extract_comments(submission)
+                comments_filename = f"{subreddit_name}_{submission.id}_comments.json"
+                self._save_data(comments_data, comments_filename, is_comment=True)
+
+        except Exception as e:
+            logger.error(f"An error occurred while retrieving top threads: {e}")
 
 
 if __name__ == "__main__":
+    subreddit_name, n_threads = sys.argv[1], int(sys.argv[2])
     retriever = RedditDataRetriever("../data")
-    retriever.retrieve_top_threads("youtubedrama", 1)
+    retriever.retrieve_top_threads(subreddit_name=subreddit_name, limit=n_threads)
