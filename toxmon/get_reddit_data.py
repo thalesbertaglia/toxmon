@@ -2,12 +2,20 @@ import json
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Union
 
 import praw
+import prawcore
 from praw.models import Comment, Submission
-from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +45,9 @@ class RedditDataRetriever:
 
     @retry(
         stop=stop_after_attempt(10),
-        wait=wait_exponential(multiplier=1, max=180),
+        wait=wait_exponential(multiplier=1, min=60, max=180),
+        retry=retry_if_exception_type(prawcore.exceptions.ResponseException),
+        reraise=True,
         before_sleep=before_sleep_log(logger, logging.INFO),
     )
     def _get_top_submissions(self, subreddit_name: str, limit: int):
@@ -136,6 +146,7 @@ class RedditDataRetriever:
                 submission_data = self._serialize_submission(submission)
                 submission_filename = f"{subreddit_name}_{submission.id}.json"
                 self._save_data(submission_data, submission_filename)
+                time.sleep(1)
 
                 comments_data = self._extract_comments(submission)
                 comments_filename = f"{subreddit_name}_{submission.id}_comments.json"
