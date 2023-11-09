@@ -6,8 +6,6 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class RedditParser:
-    url_pattern: re.Pattern = field(default=re.compile(r"https?://\S+"), init=False)
-
     def parse_thread(self, thread_json: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extracts essential information from the thread JSON and returns a Pandas DataFrame.
@@ -20,6 +18,7 @@ class RedditParser:
             if thread_json.get("author") != "None"
             else None
         )
+        num_comments: int = thread_json.get("num_comments", 0)
         ups: int = thread_json.get("ups", 0)
         downs: int = thread_json.get("downs", 0)
         upvote_ratio: float = thread_json.get("upvote_ratio", 0.0)
@@ -34,6 +33,7 @@ class RedditParser:
             "subreddit_name": subreddit_name,
             "title": title,
             "author_name": author_name,
+            "num_comments": num_comments,
             "ups": ups,
             "downs": downs,
             "upvote_ratio": upvote_ratio,
