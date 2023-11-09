@@ -1,11 +1,14 @@
 import ast
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class RedditParser:
+    url_pattern: re.Pattern = field(default=re.compile(r"https?://\S+"), init=False)
+
     def parse_thread(self, thread_json: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extracts essential information from the thread JSON and returns a Pandas DataFrame.
@@ -42,6 +45,8 @@ class RedditParser:
             "media": media,
             "media_only": media_only,
             "created_utc": created_utc,
+            "youtube_media": self.extract_youtube_media(thread_json),
+            "urls": self.extract_urls_from_selftext(thread_json),
         }
 
     def parse_comment(self, comment_json: Dict[str, Any]) -> Dict[str, Any]:
@@ -81,3 +86,26 @@ class RedditParser:
             )
 
         return comment_data
+
+    def extract_youtube_media(self, parsed_thread: Dict[str, Any]) -> str:
+        """
+        Extracts YouTube media information from the provided data.
+        """
+        media_str = parsed_thread.get("media")
+        if media_str == "None":
+            return "None"
+        else:
+            try:
+                media_dict = ast.literal_eval(media_str)
+                if "type" in media_dict and media_dict["type"] == "youtube.com":
+                    return media_dict["oembed"]["author_name"]
+            except ValueError:
+                print(f"Error parsing media: {media_str}")
+                return "ERROR"
+
+    def extract_urls_from_selftext(self, parsed_data: Dict[str, Any]) -> List[str]:
+        """
+        Extracts URLs from the 'selftext' field of the provided data.
+        """
+        urls = self.url_pattern.findall(parsed_data.get("selftext"))
+        return urls
