@@ -31,7 +31,7 @@ class RedditParser:
         media_only: bool = thread_json.get("media_only", False)
         created_utc: int = thread_json.get("created_utc", 0)
 
-        return {
+        thread_dict = {
             "thread_name": thread_name,
             "subreddit_name": subreddit_name,
             "title": title,
@@ -45,9 +45,14 @@ class RedditParser:
             "media": media,
             "media_only": media_only,
             "created_utc": created_utc,
-            "youtube_media": self.extract_youtube_media(thread_json),
             "urls": self.extract_urls_from_selftext(thread_json),
         }
+        # Add the keys from the YouTube media dictionary to the thread dictionary
+        yt_data = self.extract_youtube_media(thread_dict)
+        if yt_data != "None":
+            thread_dict.update(yt_data)
+
+        return thread_dict
 
     def parse_comment(self, comment_json: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -85,7 +90,7 @@ class RedditParser:
 
         return comment_data
 
-    def extract_youtube_media(self, parsed_thread: Dict[str, Any]) -> str:
+    def extract_youtube_media(self, parsed_thread: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extracts YouTube media information from the provided data.
         """
@@ -96,10 +101,17 @@ class RedditParser:
             try:
                 media_dict = ast.literal_eval(media_str)
                 if "type" in media_dict and media_dict["type"] == "youtube.com":
-                    return media_dict["oembed"]["author_name"]
+                    youtube_data = {
+                        "author_name": media_dict["oembed"]["author_name"],
+                        "author_url": media_dict["oembed"]["author_url"],
+                        "video_id": self._extract_video_id(
+                            media_dict["oembed"]["html"]
+                        ),
+                    }
+                    return youtube_data
             except ValueError:
                 print(f"Error parsing media: {media_str}")
-                return "ERROR"
+        return "None"
 
     def extract_urls_from_selftext(self, parsed_data: Dict[str, Any]) -> List[str]:
         """
@@ -107,3 +119,10 @@ class RedditParser:
         """
         urls = self.url_pattern.findall(parsed_data.get("selftext"))
         return urls
+
+    def _extract_video_id(self, html: str) -> str:
+        """
+        Extracts the YouTube video ID from the embed HTML.
+        """
+        video_id_match = re.search(r"youtube\.com/embed/([^/?]+)", html)
+        return video_id_match.group(1) if video_id_match else "None"
