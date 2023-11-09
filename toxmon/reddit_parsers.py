@@ -65,9 +65,7 @@ class RedditParser:
             {
                 "id": comment.get("id", None),
                 "body": comment.get("body", None),
-                "author": comment.get("author", {}).get("name", None)
-                if comment.get("author")
-                else None,
+                "author_name": comment.get("author", None),
                 "created_utc": comment.get("created_utc", None),
                 "score": comment.get("score", 0),
                 "is_submitter": comment.get("is_submitter", False),
