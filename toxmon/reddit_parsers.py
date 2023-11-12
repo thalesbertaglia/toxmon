@@ -102,8 +102,13 @@ class RedditParser:
                 media_dict = ast.literal_eval(media_str)
                 if "type" in media_dict and media_dict["type"] == "youtube.com":
                     youtube_data = {
-                        "author_name": media_dict["oembed"]["author_name"],
-                        "author_url": media_dict["oembed"]["author_url"],
+                        "media_author_name": media_dict["oembed"].get(
+                            "author_name", "None"
+                        ),
+                        "media_author_url": media_dict["oembed"].get(
+                            "author_url", "None"
+                        ),
+                        "video_title": media_dict["oembed"].get("title", "None"),
                         "video_id": self._extract_video_id(
                             media_dict["oembed"]["html"]
                         ),
