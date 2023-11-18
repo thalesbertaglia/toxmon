@@ -7,7 +7,12 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class RedditParser:
-    url_pattern: re.Pattern = field(default=re.compile(r"https?://\S+"), init=False)
+    url_pattern: re.Pattern = field(
+        default=re.compile(
+            r"(https?:\/\/(?:www\.)?[\w\-]+(?:\.[\w\-]+)+[\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])"
+        ),
+        init=False,
+    )
 
     def parse_thread(self, thread_json: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -15,6 +20,7 @@ class RedditParser:
         """
         thread_name: Optional[str] = thread_json.get("name", None)
         subreddit_name: Optional[str] = thread_json.get("subreddit_name_prefixed", None)
+        subreddit_id: Optional[str] = thread_json.get("subreddit", {}).get("id", None)
         title: Optional[str] = thread_json.get("title", None)
         author_name: Optional[str] = (
             thread_json.get("author", {}).get("name", None)
@@ -34,6 +40,7 @@ class RedditParser:
         thread_dict = {
             "thread_name": thread_name,
             "subreddit_name": subreddit_name,
+            "subreddit_id": subreddit_id,
             "title": title,
             "author_name": author_name,
             "num_comments": num_comments,
